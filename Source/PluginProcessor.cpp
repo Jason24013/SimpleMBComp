@@ -183,6 +183,35 @@ void SimpMbCompAudioProcessor::setStateInformation (const void* data, int sizeIn
     // whose contents will have been created by the getStateInformation() call.
 }
 
+juce::AudioProcessorValueTreeState::ParameterLayout SimpMbCompAudioProcessor::createParameterLayout()
+{
+
+
+    APVTS::ParameterLayout layout;
+    using namespace juce;
+    layout.add(std::make_unique<AudioParameterFloat>("Threshold", "Threshold", NormalisableRange<float>(-16, 12, 1, 1),
+        0));
+
+    auto attackReleaseRange = NormalisableRange<float>(5, 500, 1, 1);
+    layout.add(std::make_unique <AudioParameterFloat>("Attack", "Attack", attackReleaseRange, 50));
+
+    layout.add(std::make_unique<AudioParameterFloat>("Release", "Release", attackReleaseRange,
+        250));
+
+    auto choices = std::vector<double>{ 1,1.5,2,3,4,5,6,7,8,10,15,20,50,100 };
+    juce::StringArray sa;
+    for (auto choice : choices)
+    {
+        sa.add(juce::String(choice, 1));
+    }
+    layout.add(std::make_unique<AudioParameterChoice>("Ratio", "Ratio", sa, 3));
+
+    return layout;
+}
+
+
+
+
 //==============================================================================
 // This creates new instances of the plugin..
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
