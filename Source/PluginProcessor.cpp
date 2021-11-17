@@ -24,20 +24,35 @@ SimpMbCompAudioProcessor::SimpMbCompAudioProcessor()
                        )
 #endif
 {
-    attack = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("Attack"));
-    jassert(attack != nullptr);
+    using namespace params;
+    const auto& params = GetParams();
+    auto floatHelper = [&apvts = this->apvts, &params](auto& param, const auto& paramName)
+    {
+        param =
+            dynamic_cast<juce::AudioParameterFloat*>(
+                apvts
+                .getParameter(params.at(paramName)));
+        jassert(param != nullptr);
+    };
 
-    release = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("Release"));
-    jassert(release != nullptr);
+    floatHelper(comperessor.attack, Name::Attack_Low_Band);
+    floatHelper(comperessor.release, Name::Release_Low_Band);
+    floatHelper(comperessor.threshold, Name::Threshold_Low_Band);
 
-    threshold = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("Threshold"));
-    jassert(threshold != nullptr);
+    auto ChoiceHelper = [&apvts = this->apvts, &params](auto& param, const auto& paramName)
+    {
+        param = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter(params.at(paramName)));
+        jassert(param != nullptr);
+    };
+    ChoiceHelper(comperessor.ratio, Name::Ratio_Low_Band);
 
-    ratio = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("Ratio"));
-    jassert(ratio != nullptr);
-
-    bypassed = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("Bypassed"));
-    jassert(bypassed != nullptr);
+    auto boolHelper = [&apvts = this->apvts, &params](auto& param, const auto& paramName)
+    {
+        param = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter(params.at(paramName)));
+        jassert(param != nullptr);
+    };
+    boolHelper(comperessor.bypassed, Name::Bypassed_Low_Band);
+    
 }
 
 SimpMbCompAudioProcessor::~SimpMbCompAudioProcessor()
@@ -116,8 +131,7 @@ void SimpMbCompAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     spec.numChannels = getTotalNumOutputChannels();
     spec.sampleRate = sampleRate;
     comperessor.prepare(spec);
-    leftChain.prepare(spec);
-    rightChain.prepare(spec);
+  
 }
 
 void SimpMbCompAudioProcessor::releaseResources()
@@ -167,21 +181,10 @@ void SimpMbCompAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
    
-    comperessor.setAttack(attack->get());
-    comperessor.setRelease(release->get());
-    comperessor.setThreshold(threshold->get());
-    comperessor.setRatio(ratio->getCurrentChoiceName().getFloatValue());
-    auto block = juce::dsp::AudioBlock<float>(buffer);
-    auto context = juce::dsp::ProcessContextReplacing<float>(block);
-    context.isBypassed = bypassed->get();
-    comperessor.process(context);
-    auto leftBlock = block.getSingleChannelBlock(0);
-    auto rightBlock = block.getSingleChannelBlock(1);
 
-    juce::dsp::ProcessContextReplacing<float> leftContext(leftBlock);
-    juce::dsp::ProcessContextReplacing<float> rightContext(rightBlock);
-    leftChain.process(leftContext);
-    rightChain.process(rightContext);
+    comperessor.updateCompressorSettings();
+    comperessor.process(buffer);
+   
 }
 
 //==============================================================================
@@ -220,21 +223,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout SimpMbCompAudioProcessor::cr
     APVTS::ParameterLayout layout;
 
     using namespace juce;
-
-    layout.add(std::make_unique<AudioParameterFloat>("Threshold",
-        "Threshold",
+    using namespace  params;
+    const auto& params = GetParams();
+    layout.add(std::make_unique<AudioParameterFloat>(params.at(Name::Threshold_Low_Band),
+        params.at(Name::Threshold_Low_Band),
         NormalisableRange<float>(-60, 12, 1, 1),
         0));
 
     auto attackReleaseRange = NormalisableRange<float>(5, 500, 1, 1);
 
-    layout.add(std::make_unique<AudioParameterFloat>("Attack",
-        "Attack",
+    layout.add(std::make_unique<AudioParameterFloat>(params.at(Name::Attack_Low_Band),
+        params.at(Name::Attack_Low_Band),
         attackReleaseRange,
         50));
 
-    layout.add(std::make_unique<AudioParameterFloat>("Release",
-        "Release",
+    layout.add(std::make_unique<AudioParameterFloat>(params.at(Name::Release_Low_Band),
+        params.at(Name::Release_Low_Band),
         attackReleaseRange,
         250));
 
@@ -245,9 +249,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout SimpMbCompAudioProcessor::cr
         sa.add(juce::String(choice, 1));
     }
 
-    layout.add(std::make_unique<AudioParameterChoice>("Ratio", "Ratio", sa, 3));
+    layout.add(std::make_unique<AudioParameterChoice>(params.at(Name::Ratio_Low_Band), 
+        params.at(Name::Ratio_Low_Band),
+        sa, 3));
 
-    layout.add(std::make_unique<AudioParameterBool>("Bypassed", "Bypassed", false));
+    layout.add(std::make_unique<AudioParameterBool>(params.at(Name::Bypassed_Low_Band),
+        params.at(Name::Bypassed_Low_Band),
+        false));
 
     return layout;
 }
