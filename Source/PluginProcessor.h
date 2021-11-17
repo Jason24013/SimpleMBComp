@@ -16,6 +16,7 @@
 class SimpMbCompAudioProcessor : public juce::AudioProcessor
 {
 public:
+	void do_work();
     //==============================================================================
     SimpMbCompAudioProcessor();
     ~SimpMbCompAudioProcessor() override;
@@ -52,13 +53,30 @@ public:
     //==============================================================================
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
-    using APVTS = juce::AudioProcessorValueTreeState;
-    static APVTS::ParameterLayout createParameterLayout();
-     APVTS apvts = juce::AudioProcessorValueTreeState{*this, nullptr,
-        "Parameters", createParameterLayout()
-};
+	using APVTS = juce::AudioProcessorValueTreeState;
+	static APVTS::ParameterLayout createParameterLayout();
+	APVTS apvts = juce::AudioProcessorValueTreeState{
+		*this, nullptr,
+		"Parameters", createParameterLayout()
+	};
 
 private:
+    using Filter = juce::dsp::IIR::Filter<float>;
+
+    using CutFilter = juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter>;
+
+    using MonoChain = juce::dsp::ProcessorChain<CutFilter, Filter, CutFilter>;
+
+    MonoChain leftChain, rightChain;
+
+
+	juce::dsp::Compressor<float> comperessor;
+
+	juce::AudioParameterFloat* attack{nullptr};
+	juce::AudioParameterFloat* release{nullptr};
+	juce::AudioParameterFloat* threshold{nullptr};
+	juce::AudioParameterChoice* ratio{nullptr};
+    juce::AudioParameterBool* bypassed{ nullptr };
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SimpMbCompAudioProcessor)
 };

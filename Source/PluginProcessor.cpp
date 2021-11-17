@@ -9,6 +9,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+
+
 //==============================================================================
 SimpMbCompAudioProcessor::SimpMbCompAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -22,6 +24,20 @@ SimpMbCompAudioProcessor::SimpMbCompAudioProcessor()
                        )
 #endif
 {
+    attack = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("Attack"));
+    jassert(attack != nullptr);
+
+    release = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("Release"));
+    jassert(release != nullptr);
+
+    threshold = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("Threshold"));
+    jassert(threshold != nullptr);
+
+    ratio = dynamic_cast<juce::AudioParameterChoice*>(apvts.getParameter("Ratio"));
+    jassert(ratio != nullptr);
+
+    bypassed = dynamic_cast<juce::AudioParameterBool*>(apvts.getParameter("Bypassed"));
+    jassert(bypassed != nullptr);
 }
 
 SimpMbCompAudioProcessor::~SimpMbCompAudioProcessor()
@@ -95,6 +111,13 @@ void SimpMbCompAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    juce::dsp::ProcessSpec spec;
+    spec.maximumBlockSize = samplesPerBlock;
+    spec.numChannels = getTotalNumOutputChannels();
+    spec.sampleRate = sampleRate;
+    comperessor.prepare(spec);
+    leftChain.prepare(spec);
+    rightChain.prepare(spec);
 }
 
 void SimpMbCompAudioProcessor::releaseResources()
@@ -143,19 +166,22 @@ void SimpMbCompAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     // this code if your algorithm always overwrites all the output channels.
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
+   
+    comperessor.setAttack(attack->get());
+    comperessor.setRelease(release->get());
+    comperessor.setThreshold(threshold->get());
+    comperessor.setRatio(ratio->getCurrentChoiceName().getFloatValue());
+    auto block = juce::dsp::AudioBlock<float>(buffer);
+    auto context = juce::dsp::ProcessContextReplacing<float>(block);
+    context.isBypassed = bypassed->get();
+    comperessor.process(context);
+    auto leftBlock = block.getSingleChannelBlock(0);
+    auto rightBlock = block.getSingleChannelBlock(1);
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    {
-        auto* channelData = buffer.getWritePointer (channel);
-
-        // ..do something to the data...
-    }
+    juce::dsp::ProcessContextReplacing<float> leftContext(leftBlock);
+    juce::dsp::ProcessContextReplacing<float> rightContext(rightBlock);
+    leftChain.process(leftContext);
+    rightChain.process(rightContext);
 }
 
 //==============================================================================
@@ -166,45 +192,62 @@ bool SimpMbCompAudioProcessor::hasEditor() const
 
 juce::AudioProcessorEditor* SimpMbCompAudioProcessor::createEditor()
 {
-    return new SimpMbCompAudioProcessorEditor (*this);
+   // return new SimpMbCompAudioProcessorEditor (*this);
+    return new juce::GenericAudioProcessorEditor(*this);
 }
 
 //==============================================================================
 void SimpMbCompAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
+    juce::MemoryOutputStream mos(destData, true);
+    apvts.state.writeToStream(mos);
 }
 
 void SimpMbCompAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     // You should use this method to restore your parameters from this memory block,
     // whose contents will have been created by the getStateInformation() call.
+    auto tree = juce::ValueTree::readFromData(data, sizeInBytes);
+        if(tree.isValid())
+    {
+            apvts.replaceState(tree);
+    }
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SimpMbCompAudioProcessor::createParameterLayout()
 {
 
-
     APVTS::ParameterLayout layout;
+
     using namespace juce;
-    layout.add(std::make_unique<AudioParameterFloat>("Threshold", "Threshold", NormalisableRange<float>(-16, 12, 1, 1),
+
+    layout.add(std::make_unique<AudioParameterFloat>("Threshold",
+        "Threshold",
+        NormalisableRange<float>(-60, 12, 1, 1),
         0));
 
     auto attackReleaseRange = NormalisableRange<float>(5, 500, 1, 1);
-    layout.add(std::make_unique <AudioParameterFloat>("Attack", "Attack", attackReleaseRange, 50));
 
-    layout.add(std::make_unique<AudioParameterFloat>("Release", "Release", attackReleaseRange,
+    layout.add(std::make_unique<AudioParameterFloat>("Attack",
+        "Attack",
+        attackReleaseRange,
+        50));
+
+    layout.add(std::make_unique<AudioParameterFloat>("Release",
+        "Release",
+        attackReleaseRange,
         250));
 
-    auto choices = std::vector<double>{ 1,1.5,2,3,4,5,6,7,8,10,15,20,50,100 };
+    auto choices = std::vector<double>{ 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 50, 100 };
     juce::StringArray sa;
     for (auto choice : choices)
     {
         sa.add(juce::String(choice, 1));
     }
+
     layout.add(std::make_unique<AudioParameterChoice>("Ratio", "Ratio", sa, 3));
+
+    layout.add(std::make_unique<AudioParameterBool>("Bypassed", "Bypassed", false));
 
     return layout;
 }
